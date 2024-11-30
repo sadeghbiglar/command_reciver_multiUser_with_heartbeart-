@@ -12,14 +12,14 @@ namespace ServerApp
     class Program
     {
         public static bool flag = false;
-        const string controllerIp = "192.168.165.99"; // آدرس IP RemoteController
+        const string controllerIp = "127.0.0.1"; // آدرس IP RemoteController
         const int port = 5000; // پورتی که سرور گوش می‌دهد
         const int cport = 5001; // پورتی که سرور گوش می‌دهد
+        const int fport = 5002; // پورتی که سرور گوش می‌دهد
         public static string clientName = Environment.MachineName;
         static TcpListener command_listener;
         static void Main(string[] args)
         {
-
 
 
             Thread thread1 = new Thread(() =>
@@ -30,7 +30,7 @@ namespace ServerApp
                     {
                         using (TcpClient client = new TcpClient())
                         {
-                            Console.WriteLine("Attempting to connect to RemoteController...");
+                            Console.WriteLine("\nAttempting to connect to RemoteController...");
                             client.Connect(controllerIp, port); // تلاش برای اتصال
 
                             using (NetworkStream stream = client.GetStream())
@@ -39,20 +39,20 @@ namespace ServerApp
                                 if (!flag)
                                 {
                                     writer.WriteLine($"register:{clientName}");
-                                    Console.WriteLine("Registration message sent.");
+                                    Console.WriteLine("\nRegistration message sent.");
                                     flag = true;
                                 }
                                 else
                                 {
                                     writer.WriteLine($"heartbeat from:{clientName}");
-                                    Console.WriteLine("Heartbeat message sent.");
+                                    Console.WriteLine("\nHeartbeat message sent.");
                                 }
                             }
                         }
                     }
                     catch (SocketException)
                     {
-                        Console.WriteLine("Controller is not available. Retrying...");
+                        Console.WriteLine("\nController is not available. Retrying...");
                     }
                     catch (Exception ex)
                     {
@@ -76,18 +76,18 @@ namespace ServerApp
                     {
                         command_listener.Start();
                         TcpClient client = command_listener.AcceptTcpClient();
-                        Console.WriteLine("Client connected.");
+                        Console.WriteLine("\nClient connected.");
 
                         using (NetworkStream stream = client.GetStream())
                         using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
                         using (StreamWriter writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true })
                         {
                             string command = reader.ReadLine();
-                            Console.WriteLine($"Command received: {command}");
+                            Console.WriteLine($"\nCommand received: {command}");
 
                             // اجرای دستور CMD
                             string result = ExecuteCommand(command);
-                            Console.WriteLine($"Result: {result}");
+                            Console.WriteLine($"\nResult: {result}");
 
                             // ارسال نتیجه به کلاینت
                             writer.WriteLine(result);
@@ -127,6 +127,70 @@ namespace ServerApp
                     return false; // اگر خطا رخ داد، یعنی کسی گوش نمی‌دهد
                 }
             }
+            Thread thread3 = new Thread(() =>
+            {
+               
+                TcpListener listener = new TcpListener(IPAddress.Any, fport);
+                listener.Start();
+                Console.WriteLine($"\nListening for files on port {fport}...");
+
+                while (true)
+                {
+                    try
+                    {
+                        using (TcpClient client = listener.AcceptTcpClient())
+                        using (NetworkStream stream = client.GetStream())
+                        using (BinaryReader reader = new BinaryReader(stream))
+                        {
+                            string fileName = reader.ReadString(); // دریافت نام فایل
+                            string destinationPath = reader.ReadString(); // دریافت مسیر مقصد
+                            long fileLength = reader.ReadInt64(); // دریافت طول فایل
+
+                            string fullPath = Path.Combine(destinationPath, fileName);
+                            Console.WriteLine($"Receiving file: {fileName} ({fileLength} bytes)");
+
+                            using (FileStream fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write))
+                            {
+                                byte[] buffer = new byte[8192];
+                                int bytesRead;
+                                long totalBytesRead = 0;
+
+                                while (totalBytesRead < fileLength &&
+                                       (bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+                                {
+                                    fs.Write(buffer, 0, bytesRead);
+                                    totalBytesRead += bytesRead;
+
+                                    // نمایش پراگرس بار
+                                    ShowProgress(totalBytesRead, fileLength);
+                                }
+                            }
+
+                            Console.WriteLine($"\nFile saved to {fullPath}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error receiving file: {ex.Message}");
+                    }
+                }
+            
+            });
+            thread3.Start();
+
+            void ShowProgress(long bytesTransferred, long totalBytes)
+            {
+                int progressBarWidth = 50; // عرض پراگرس بار
+                double percentage = (double)bytesTransferred / totalBytes;
+                int filledBars = (int)(percentage * progressBarWidth);
+
+                Console.CursorLeft = 0;
+                Console.Write("[");
+                Console.Write(new string('#', filledBars));
+                Console.Write(new string('-', progressBarWidth - filledBars));
+                Console.Write($"] {percentage:P0}");
+            }
+
             AppDomain.CurrentDomain.ProcessExit += (sender, e) =>
             {
                 if (command_listener != null)
