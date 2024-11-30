@@ -1,0 +1,14 @@
+C:\Users\it2.SHABAKE\Desktop\sc\server\bin\Debug\server.exe.config
+C:\Users\it2.SHABAKE\Desktop\sc\server\bin\Debug\server.exe
+C:\Users\it2.SHABAKE\Desktop\sc\server\bin\Debug\server.pdb
+C:\Users\it2.SHABAKE\Desktop\sc\server\obj\Debug\server.csprojAssemblyReference.cache
+C:\Users\it2.SHABAKE\Desktop\sc\server\obj\Debug\server.csproj.CoreCompileInputs.cache
+C:\Users\it2.SHABAKE\Desktop\sc\server\obj\Debug\server.exe
+C:\Users\it2.SHABAKE\Desktop\sc\server\obj\Debug\server.pdb
+C:\Users\sadeghbiglar\Desktop\sc\server\bin\Debug\server.exe.config
+C:\Users\sadeghbiglar\Desktop\sc\server\bin\Debug\server.exe
+C:\Users\sadeghbiglar\Desktop\sc\server\bin\Debug\server.pdb
+C:\Users\sadeghbiglar\Desktop\sc\server\obj\Debug\server.csproj.AssemblyReference.cache
+C:\Users\sadeghbiglar\Desktop\sc\server\obj\Debug\server.csproj.CoreCompileInputs.cache
+C:\Users\sadeghbiglar\Desktop\sc\server\obj\Debug\server.exe
+C:\Users\sadeghbiglar\Desktop\sc\server\obj\Debug\server.pdb
