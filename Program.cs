@@ -7,6 +7,9 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Security.Cryptography;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
 
 namespace ServerApp
 {
@@ -20,27 +23,29 @@ namespace ServerApp
         const int fport = 5002; // پورتی که سرور گوش می‌دهد
         public static string clientName = Environment.MachineName;
         static TcpListener command_listener;
+       private static string secretKey = "this-is-a-very-secure-and-long-key-1234567890";
+
         static void Main(string[] args)
         {
-            Thread thread1 = new Thread(() =>
+            StartServer();
+            void StartServer()
             {
                 TcpClient client = null;
 
-                // حلقه تلاش برای اتصال به کنترلر
                 while (true)
                 {
                     try
                     {
                         client = new TcpClient();
                         Console.WriteLine("\nAttempting to connect to RemoteController...");
-                        client.Connect(controllerIp, port); // تلاش برای اتصال
+                        client.Connect("127.0.0.1", 5000);
                         Console.WriteLine("Connected to RemoteController.");
-                        break; // خروج از حلقه در صورت اتصال موفق
+                        break;
                     }
                     catch (SocketException)
                     {
                         Console.WriteLine("\nController is not available. Retrying in 5 seconds...");
-                        Thread.Sleep(5000); // انتظار برای تلاش مجدد
+                        Thread.Sleep(5000);
                     }
                 }
 
@@ -52,93 +57,90 @@ namespace ServerApp
 
                     while (true)
                     {
-                        try
+                        if (!flag)
                         {
-                            if (!flag)
-                            {
-                                writer.WriteLine($"register:{clientName}");
-                                Console.WriteLine("\nRegistration message sent.");
-                                flag = true;
-                            }
-                            else
-                            {
-                                writer.WriteLine($"heartbeat:{clientName}");
-                                Console.WriteLine("\nHeartbeat message sent.");
-                            }
+                            writer.WriteLine($"register:{clientName}");
+                            Console.WriteLine("\nRegistration message sent.");
+                            flag = true;
+                        }
+                        else
+                        {
+                            writer.WriteLine($"heartbeat:{clientName}");
+                            Console.WriteLine("\nHeartbeat message sent.");
+                        }
 
-                            // بررسی دستورات از کنترلر
-                            while (stream.DataAvailable)
+                        // بررسی دستورات از کنترلر
+                        while (stream.DataAvailable)
+                        {
+                            if (!flag1)
                             {
-                                // خواندن پیام و حذف فضای خالی یا کاراکتر اضافی
-                                string message = "";
-                                
-                                 message = reader.ReadLine();
-                                Console.WriteLine($"\nRaw message received: {message}");
+                                string receivedMessage = reader.ReadLine();
 
-                                if (!string.IsNullOrEmpty(message))
+                                Console.WriteLine($"raw Command received: {receivedMessage}");
+
+                                if (receivedMessage.StartsWith("cmd:"))
                                 {
-                                    if (message.StartsWith("cmd:")) // دستور
+                                    string jwt = receivedMessage.Substring(4);
+                                    if (ValidateJwt(jwt, out string command))
                                     {
-                                        if (!flag1)
+                                        Console.WriteLine($"Command received: {command}");
+
+                                        // اجرای دستور
+                                        string result = ExecuteCommand(command);
+                                        Console.WriteLine($"Result: {result}");
+
+                                        // ارسال نتیجه
+                                        string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+                                        foreach (var line in resultLines)
                                         {
-                                            string command = message.Substring(4);
-                                            Console.WriteLine($"\nCommand received: {command}");
-
-                                            // اجرای دستور CMD
-                                            string result = ExecuteCommand(command);
-                                            Console.WriteLine($"\nResult: {result}");
-
-                                            // ارسال نتیجه
-                                            string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-                                            foreach (var line in resultLines)
-                                            {
-                                                writer.WriteLine($"result:{line}");
-                                            }
-                                            writer.WriteLine("endresult");
-                                            message = "";
-                                            flag1 = true;
+                                            writer.WriteLine($"result:{line}");
                                         }
-                                        else
-                                        {
-                                            string command = message.Substring(5);
-                                            Console.WriteLine($"\nCommand received: {command}");
-
-                                            // اجرای دستور CMD
-                                            string result = ExecuteCommand(command);
-                                            Console.WriteLine($"\nResult: {result}");
-
-                                            // ارسال نتیجه
-                                            string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-                                            foreach (var line in resultLines)
-                                            {
-                                                writer.WriteLine($"result:{line}");
-                                            }
-                                            writer.WriteLine("endresult");
-                                            message = "";
-
-                                        }
-                                        
+                                        writer.WriteLine("endresult");
+                                        flag1 = true;
                                     }
-                                    
                                     else
                                     {
-                                        Console.WriteLine($"Unknown message: {message}");
+                                        Console.WriteLine("Invalid JWT. Message rejected.");
                                     }
                                 }
 
-                                // تخلیه بافر برای پاک‌سازی داده‌های باقی‌مانده
-                                reader.DiscardBufferedData();
+                            }
+                            else
+                            {
+                                string receivedMessage = reader.ReadLine();
+
+                                Console.WriteLine($"raw Command received: {receivedMessage}");
+
+                                if (receivedMessage.StartsWith("cmd:"))
+                                {
+                                    string jwt = receivedMessage.Substring(5);
+                                    if (ValidateJwt(jwt, out string command))
+                                    {
+                                        Console.WriteLine($"Command received: {command}");
+
+                                        // اجرای دستور
+                                        string result = ExecuteCommand(command);
+                                        Console.WriteLine($"Result: {result}");
+
+                                        // ارسال نتیجه
+                                        string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+                                        foreach (var line in resultLines)
+                                        {
+                                            writer.WriteLine($"result:{line}");
+                                        }
+                                        writer.WriteLine("endresult");
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine("Invalid JWT. Message rejected.");
+                                    }
+                                }
+
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Error while processing data: {ex.Message}");
-                            break;
-                        }
 
-                        Thread.Sleep(5000); // تأخیر قبل از ارسال پیام بعدی
+                        Thread.Sleep(10000);
                     }
-
                 }
                 catch (Exception ex)
                 {
@@ -149,11 +151,35 @@ namespace ServerApp
                     client?.Close();
                     Console.WriteLine("Connection to RemoteController closed.");
                 }
-            });
+            }
 
-            thread1.Start();
+            bool ValidateJwt(string token, out string command)
+            {
+                command = null;
+                var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
+                var tokenHandler = new JwtSecurityTokenHandler();
 
-           
+                try
+                {
+                    var validationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuerSigningKey = true,
+                        IssuerSigningKey = securityKey,
+                        ValidateIssuer = false,
+                        ValidateAudience = false
+                    };
+
+                    var principal = tokenHandler.ValidateToken(token, validationParameters, out _);
+                    command = principal.FindFirst("command")?.Value;
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"JWT validation failed: {ex.Message}");
+                    return false;
+                }
+            }
+
             Thread thread3 = new Thread(() =>
             {
                
@@ -227,6 +253,19 @@ namespace ServerApp
                     Console.WriteLine("Listener stopped on exit.");
                 }
             };
+        }
+        static string GenerateHmac(string message, string secretKey)
+        {
+            using (var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secretKey)))
+            {
+                byte[] hashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(message));
+                return Convert.ToBase64String(hashBytes); // بازگشت رشته رمزگذاری‌شده
+            }
+        }
+        static bool ValidateHmac(string message, string receivedHmac, string secretKey)
+        {
+            string calculatedHmac = GenerateHmac(message, secretKey);
+            return calculatedHmac == receivedHmac;
         }
 
         static string ExecuteCommand(string command)
