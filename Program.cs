@@ -16,10 +16,7 @@ namespace ServerApp
         public static bool flag1 = false;
         const string controllerIp = "127.0.0.1"; // آدرس IP RemoteController
         const int port = 5000; // پورتی که سرور گوش می‌دهد
-        const int cport = 5001; // پورتی که سرور گوش می‌دهد
-        const int fport = 5002; // پورتی که سرور گوش می‌دهد
         public static string clientName = Environment.MachineName;
-        static TcpListener command_listener;
         static void Main(string[] args)
         {
             Thread thread1 = new Thread(() =>
@@ -49,7 +46,7 @@ namespace ServerApp
                     NetworkStream stream = client.GetStream();
                     StreamReader reader = new StreamReader(stream, Encoding.UTF8);
                     StreamWriter writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
-
+                    BinaryReader breader = new BinaryReader(stream);
                     while (true)
                     {
                         try
@@ -73,10 +70,12 @@ namespace ServerApp
                                 string message = "";
                                 
                                  message = reader.ReadLine();
-                                Console.WriteLine($"\nRaw message received: {message}");
+                                Thread.Sleep(2000);
+                                // Console.WriteLine($"\nRaw message received: {message}");
 
                                 if (!string.IsNullOrEmpty(message))
                                 {
+                                    Thread.Sleep(1000);
                                     if (message.StartsWith("cmd:")) // دستور
                                     {
                                         if (!flag1)
@@ -98,6 +97,7 @@ namespace ServerApp
                                             message = "";
                                             flag1 = true;
                                         }
+                                      
                                         else
                                         {
                                             string command = message.Substring(5);
@@ -118,6 +118,67 @@ namespace ServerApp
 
                                         }
                                         
+                                    }
+                                   
+                                    else if (message.StartsWith("file:"))
+                                    {
+                                        try
+                                        {
+                                            stream.ReadTimeout = 10000; // تنظیم تایم‌اوت 10 ثانیه
+                                            Console.WriteLine($"\nCommand received: {message}");
+
+                                            string fileName = breader.ReadString(); // دریافت نام فایل
+                                                string destinationPath = breader.ReadString(); // دریافت مسیر مقصد
+                                                long fileLength = breader.ReadInt64(); // دریافت طول فایل
+
+                                                string fullPath = Path.Combine(destinationPath, fileName);
+                                                Console.WriteLine($"Receiving file: {fileName} ({fileLength} bytes)");
+
+                                                using (FileStream fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write))
+                                                {
+                                                    byte[] buffer = new byte[8192];
+                                                    int bytesRead;
+                                                    long totalBytesRead = 0;
+
+                                                //while (totalBytesRead < fileLength &&
+                                                //       (bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+                                                //{
+                                                //    fs.Write(buffer, 0, bytesRead);
+                                                //    totalBytesRead += bytesRead;
+
+                                                //    // نمایش پراگرس بار
+                                                //    ShowProgress(totalBytesRead, fileLength);
+                                                //}
+                                                long totalBytesReceived = 0;
+
+                                                while (totalBytesReceived < fileLength)
+                                                {
+                                                    bytesRead = stream.Read(buffer, 0, buffer.Length);
+                                                    if (bytesRead <= 0)
+                                                    {
+                                                        throw new IOException("Connection closed or no more data to read.");
+                                                    }
+
+                                                    fs.Write(buffer, 0, bytesRead);
+                                                    totalBytesReceived += bytesRead;
+
+                                                    // نمایش پراگرس بار
+                                                    ShowProgress(totalBytesReceived, fileLength);
+                                                }
+                                            }
+
+                                                Console.WriteLine($"\nFile saved to {fullPath}");
+                                            
+                                        }
+                                        catch (IOException ex)
+                                        {
+                                            Console.WriteLine($"File transfer timeout or connection closed: {ex.Message}");
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Console.WriteLine($"Error receiving file: {ex.Message}");
+                                        }
+
                                     }
                                     
                                     else
@@ -154,57 +215,7 @@ namespace ServerApp
             thread1.Start();
 
            
-            Thread thread3 = new Thread(() =>
-            {
-               
-                TcpListener listener = new TcpListener(IPAddress.Any, fport);
-                listener.Start();
-                Console.WriteLine($"\nListening for files on port {fport}...");
-
-                while (true)
-                {
-                    try
-                    {
-                        using (TcpClient client = listener.AcceptTcpClient())
-                        using (NetworkStream stream = client.GetStream())
-                        using (BinaryReader reader = new BinaryReader(stream))
-                        {
-                            string fileName = reader.ReadString(); // دریافت نام فایل
-                            string destinationPath = reader.ReadString(); // دریافت مسیر مقصد
-                            long fileLength = reader.ReadInt64(); // دریافت طول فایل
-
-                            string fullPath = Path.Combine(destinationPath, fileName);
-                            Console.WriteLine($"Receiving file: {fileName} ({fileLength} bytes)");
-
-                            using (FileStream fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write))
-                            {
-                                byte[] buffer = new byte[8192];
-                                int bytesRead;
-                                long totalBytesRead = 0;
-
-                                while (totalBytesRead < fileLength &&
-                                       (bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
-                                {
-                                    fs.Write(buffer, 0, bytesRead);
-                                    totalBytesRead += bytesRead;
-
-                                    // نمایش پراگرس بار
-                                    ShowProgress(totalBytesRead, fileLength);
-                                }
-                            }
-
-                            Console.WriteLine($"\nFile saved to {fullPath}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error receiving file: {ex.Message}");
-                    }
-                }
-            
-            });
-            thread3.Start();
-
+         
             void ShowProgress(long bytesTransferred, long totalBytes)
             {
                 int progressBarWidth = 50; // عرض پراگرس بار
@@ -218,15 +229,7 @@ namespace ServerApp
                 Console.Write($"] {percentage:P0}");
             }
 
-            AppDomain.CurrentDomain.ProcessExit += (sender, e) =>
-            {
-                if (command_listener != null)
-                {
-                    command_listener.Stop();
-                   
-                    Console.WriteLine("Listener stopped on exit.");
-                }
-            };
+           
         }
 
         static string ExecuteCommand(string command)
