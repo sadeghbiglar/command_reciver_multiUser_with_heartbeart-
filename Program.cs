@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Eventing.Reader;
 using System.IO;
@@ -19,8 +20,11 @@ namespace ServerApp
         const int port = 5000; // پورتی که سرور گوش می‌دهد
         public static string clientName = Environment.MachineName;
         public static string key = "-key-key-@-key-key-@-key-key-@##";
-      public static  bool isSendingFile = false; // وضعیت ارسال فایل
-      public static  TcpClient client = null;
+    //  public static  bool isSendingFile = false; // وضعیت ارسال فایل
+        public static  TcpClient client = null;
+        // صف‌ها برای پیام‌های ورودی و خروجی
+        public static ConcurrentQueue<string> incomingQueue = new ConcurrentQueue<string>();
+        public static ConcurrentQueue<string> outgoingQueue = new ConcurrentQueue<string>();
         static void Main(string[] args)
         {
             
@@ -38,6 +42,7 @@ namespace ServerApp
                         Console.WriteLine("Connected to RemoteController.");
                         flag = false;
                         HandleConnection(client);
+                      
                       //  break; // خروج از حلقه در صورت اتصال موفق
                        
                     }
@@ -52,6 +57,9 @@ namespace ServerApp
                     }
                 }
             }
+           
+
+
             void HandleConnection(TcpClient client)
             {
                 try
@@ -66,8 +74,10 @@ namespace ServerApp
                         {
                             if (!flag)
                             {
-                                writer.WriteLine($"register:{clientName}");
-                                Console.WriteLine("\nRegistration message sent.");
+                                //writer.WriteLine($"register:{clientName}");
+                                //Console.WriteLine("\nRegistration message sent.");
+                                string message = $"register:{clientName}";
+                                outgoingQueue.Enqueue(message);
                                 flag = true;
                                 stream.Flush();
                                 reader.DiscardBufferedData();
@@ -75,22 +85,49 @@ namespace ServerApp
                             }
                             else
                             {
-                                if (isSendingFile == false)
-                                {
-                                    writer.WriteLine($"heartbeat:{clientName}");
-                                    Console.WriteLine("\nHeartbeat message sent.");
-                                    stream.Flush();
+
+                                //writer.WriteLine($"heartbeat:{clientName}");
+                                //Console.WriteLine("\nHeartbeat message sent.");
+                                string message = $"heartbeat:{clientName}";
+                                outgoingQueue.Enqueue(message);
+                                stream.Flush();
                                     reader.DiscardBufferedData();
-                                }
+                                
 
 
 
                             }
+                           
+                                lock (outgoingQueue)
+                                {
+                                    if (outgoingQueue.TryDequeue(out string message))
+                                    {
+                                        Console.WriteLine($"Processing message: {message}");
 
-                            // بررسی دستورات از کنترلر
+                                        if (message.StartsWith("register"))
+                                        {
+                                            writer.WriteLine($"register:{clientName}");
+                                            Console.WriteLine("\nRegistration message sent.");
+
+
+                                        }
+                                        else if (message.StartsWith("heartbeat"))
+                                        {
+                                            writer.WriteLine($"heartbeat:{clientName}");
+                                            Console.WriteLine("\nHeartbeat message sent.");
+                                        }
+                                        else
+                                        {
+                                            Console.WriteLine($"Unknown message type: {message}");
+                                        }
+                                    }
+                                }
+
+                                Thread.Sleep(10); // تأخیر کوچک برای بهینه‌سازی CPU
+                                                  // بررسی دستورات از کنترلر
                             while (stream.DataAvailable)
                             {
-                                isSendingFile = true;
+
                                 Thread.Sleep(1000);
                                 // خواندن پیام و حذف فضای خالی یا کاراکتر اضافی
                                 string message = "";
@@ -98,354 +135,145 @@ namespace ServerApp
                                 reader.DiscardBufferedData();
 
                                 message = reader.ReadLine();
-
+                                outgoingQueue.Enqueue(message);
                                 Thread.Sleep(2000);
                                 // Console.WriteLine($"\nRaw message received: {message}");
-
-                                if (!string.IsNullOrEmpty(message))
-                                {
-                                    Thread.Sleep(1000);
-                                    if (message.StartsWith("cmd:")) // دستور
-                                    {
-                                        if (!flag1)
-                                        {
-
-                                            string command = message.Substring(4);
-                                            Console.WriteLine($"\nCommand received: {command}");
-
-                                            // اجرای دستور CMD
-                                            string result = ExecuteCommand(command);
-                                            Console.WriteLine($"\nResult: {result}");
-
-                                            // ارسال نتیجه
-                                            string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-                                            foreach (var line in resultLines)
-                                            {
-                                                writer.WriteLine($"result:{line}");
-                                            }
-                                            writer.WriteLine("endresult");
-                                            message = "";
-                                            flag1 = true;
-                                            stream.Flush();
-                                            isSendingFile = false;
-                                        }
-
-                                        else
-                                        {
-
-                                            string command = message.Substring(5);
-                                            Console.WriteLine($"\nCommand received: {command}");
-
-                                            // اجرای دستور CMD
-                                            string result = ExecuteCommand(command);
-                                            Console.WriteLine($"\nResult: {result}");
-
-                                            // ارسال نتیجه
-                                            string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-                                            foreach (var line in resultLines)
-                                            {
-                                                writer.WriteLine($"result:{line}");
-                                            }
-                                            writer.WriteLine("endresult");
-                                            message = "";
-                                            stream.Flush();
-                                            isSendingFile = false;
-                                        }
-
-                                    }
-
-                                    else if (message.StartsWith("file:"))
-                                    {
-                                        try
-                                        {
-
-                                            stream.ReadTimeout = 15000; // تنظیم تایم‌اوت 15 ثانیه
-                                            Console.WriteLine($"\nCommand received: {message}");
-                                            stream.Flush();
-                                            string fileName = breader.ReadString(); // دریافت نام فایل
-                                            string destinationPath = breader.ReadString(); // دریافت مسیر مقصد
-                                            long fileLength = breader.ReadInt64(); // دریافت طول فایل
-
-                                            string fullPath = Path.Combine(destinationPath, fileName);
-                                            Console.WriteLine($"Receiving file: {fileName} ({fileLength} bytes)");
-
-                                            using (FileStream fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write))
-                                            {
-
-                                                byte[] buffer = new byte[8192];
-                                                int bytesRead;
-                                                long totalBytesRead = 0;
-
-                                                //while (totalBytesRead < fileLength &&
-                                                //       (bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
-                                                //{
-                                                //    fs.Write(buffer, 0, bytesRead);
-                                                //    totalBytesRead += bytesRead;
-
-                                                //    // نمایش پراگرس بار
-                                                //    ShowProgress(totalBytesRead, fileLength);
-                                                //}
-                                                long totalBytesReceived = 0;
-
-                                                while (totalBytesReceived < fileLength)
-                                                {
-                                                    bytesRead = stream.Read(buffer, 0, buffer.Length);
-                                                    if (bytesRead <= 0)
-                                                    {
-                                                        throw new IOException("Connection closed or no more data to read.");
-                                                    }
-
-                                                    fs.Write(buffer, 0, bytesRead);
-                                                    writer.Flush(); // اطمینان از نوشتن کامل داده
-                                                    totalBytesReceived += bytesRead;
-
-                                                    // نمایش پراگرس بار
-                                                    ShowProgress(totalBytesReceived, fileLength);
-                                                }
-                                            }
-                                            stream.Flush();
-                                            isSendingFile = false;
-                                            Console.WriteLine($"\nFile saved to {fullPath}");
-
-                                        }
-                                        catch (IOException ex)
-                                        {
-                                            Console.WriteLine($"File transfer timeout or connection closed: {ex.Message}");
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            Console.WriteLine($"Error receiving file: {ex.Message}");
-                                        }
-
-                                    }
-
-                                    else
-                                    {
-                                        Console.WriteLine($"Unknown message: {message}");
-                                    }
-                                }
 
                                 // تخلیه بافر برای پاک‌سازی داده‌های باقی‌مانده
                                 reader.DiscardBufferedData();
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Error while processing data: {ex.Message}");
-                            break;
-                        }
 
-                        Thread.Sleep(5000);
-                    }
-
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error in communication: {ex.Message}");
-                }
-                finally
-                {
-                    client?.Close();
-                    Console.WriteLine("Connection to RemoteController closed.");
-                    retrytoconnect();
-                }
-            }
-            Thread thread1 = new Thread(() =>
-            {
-
-
-                //// حلقه تلاش برای اتصال به کنترلر
-                //while (true)
-                //{
-                //    try
-                //    {
-                //        client = new TcpClient();
-                //        Console.WriteLine("\nAttempting to connect to RemoteController...");
-                //        client.Connect(controllerIp, port); // تلاش برای اتصال
-                //        Console.WriteLine("Connected to RemoteController.");
-                //        break; // خروج از حلقه در صورت اتصال موفق
-                //    }
-                //    catch (SocketException)
-                //    {
-                //        Console.WriteLine("\nController is not available. Retrying in 5 seconds...");
-                //        Thread.Sleep(5000); // انتظار برای تلاش مجدد
-                //    }
-                //}
-                retrytoconnect();
-                try
-                {
-                    NetworkStream stream = client.GetStream();
-                    StreamReader reader = new StreamReader(stream, Encoding.UTF8);
-                    StreamWriter writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
-                    BinaryReader breader = new BinaryReader(stream);
-                    while (true)
-                    {
-                        try
-                        {
-                            if (!flag)
+                            lock (outgoingQueue)
                             {
-                                writer.WriteLine($"register:{clientName}");
-                                Console.WriteLine("\nRegistration message sent.");
-                                flag = true;
-                                stream.Flush();
-                                reader.DiscardBufferedData();
-
-                            }
-                            else
-                            {
-                                if (isSendingFile == false)
+                                if (outgoingQueue.TryDequeue(out string message))
                                 {
-                                    writer.WriteLine($"heartbeat:{clientName}");
-                                    Console.WriteLine("\nHeartbeat message sent.");
-                                    stream.Flush();
-                                    reader.DiscardBufferedData();
-                                }
-                                
-                                   
-                                
-                            }
+                                    Console.WriteLine($"Processing message: {message}");
 
-                            // بررسی دستورات از کنترلر
-                            while (stream.DataAvailable)
-                            {
-                                isSendingFile = true;
-                                Thread.Sleep(1000);
-                                // خواندن پیام و حذف فضای خالی یا کاراکتر اضافی
-                                string message = "";
-                                stream.Flush();
-                                reader.DiscardBufferedData();
-
-                                message = reader.ReadLine();
-                               
-                                Thread.Sleep(2000);
-                                // Console.WriteLine($"\nRaw message received: {message}");
-
-                                if (!string.IsNullOrEmpty(message))
-                                {
-                                    Thread.Sleep(1000);
-                                    if (message.StartsWith("cmd:")) // دستور
+                                    if (!string.IsNullOrEmpty(message))
                                     {
-                                        if (!flag1)
+                                        Thread.Sleep(1000);
+                                        if (message.StartsWith("cmd:")) // دستور
                                         {
-                                           
-                                            string command = message.Substring(4);
-                                            Console.WriteLine($"\nCommand received: {command}");
-
-                                            // اجرای دستور CMD
-                                            string result = ExecuteCommand(command);
-                                            Console.WriteLine($"\nResult: {result}");
-
-                                            // ارسال نتیجه
-                                            string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-                                            foreach (var line in resultLines)
+                                            if (!flag1)
                                             {
-                                                writer.WriteLine($"result:{line}");
+
+                                                string command = message.Substring(4);
+                                                Console.WriteLine($"\nCommand received: {command}");
+
+                                                // اجرای دستور CMD
+                                                string result = ExecuteCommand(command);
+                                                Console.WriteLine($"\nResult: {result}");
+
+                                                // ارسال نتیجه
+                                                string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+                                                foreach (var line in resultLines)
+                                                {
+                                                    writer.WriteLine($"result:{line}");
+                                                }
+                                                writer.WriteLine("endresult");
+                                                message = "";
+                                                flag1 = true;
+                                                stream.Flush();
+
                                             }
-                                            writer.WriteLine("endresult");
-                                            message = "";
-                                            flag1 = true;
-                                            stream.Flush();
-                                            isSendingFile = false;
-                                        }
-                                      
-                                        else
-                                        {
-                                           
-                                            string command = message.Substring(5);
-                                            Console.WriteLine($"\nCommand received: {command}");
 
-                                            // اجرای دستور CMD
-                                            string result = ExecuteCommand(command);
-                                            Console.WriteLine($"\nResult: {result}");
-
-                                            // ارسال نتیجه
-                                            string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-                                            foreach (var line in resultLines)
+                                            else
                                             {
-                                                writer.WriteLine($"result:{line}");
+
+                                                string command = message.Substring(5);
+                                                Console.WriteLine($"\nCommand received: {command}");
+
+                                                // اجرای دستور CMD
+                                                string result = ExecuteCommand(command);
+                                                Console.WriteLine($"\nResult: {result}");
+
+                                                // ارسال نتیجه
+                                                string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+                                                foreach (var line in resultLines)
+                                                {
+                                                    writer.WriteLine($"result:{line}");
+                                                }
+                                                writer.WriteLine("endresult");
+                                                message = "";
+                                                stream.Flush();
+
                                             }
-                                            writer.WriteLine("endresult");
-                                            message = "";
-                                            stream.Flush();
-                                            isSendingFile = false;
+
                                         }
-                                        
-                                    }
-                                   
-                                    else if (message.StartsWith("file:"))
-                                    {
-                                        try
+
+                                        else if (message.StartsWith("file:"))
                                         {
-                                          
-                                            stream.ReadTimeout = 15000; // تنظیم تایم‌اوت 15 ثانیه
-                                            Console.WriteLine($"\nCommand received: {message}");
-                                            stream.Flush();
-                                            string fileName = breader.ReadString(); // دریافت نام فایل
+                                            try
+                                            {
+
+                                                stream.ReadTimeout = 15000; // تنظیم تایم‌اوت 15 ثانیه
+                                                Console.WriteLine($"\nCommand received: {message}");
+                                                stream.Flush();
+                                                string fileName = breader.ReadString(); // دریافت نام فایل
                                                 string destinationPath = breader.ReadString(); // دریافت مسیر مقصد
                                                 long fileLength = breader.ReadInt64(); // دریافت طول فایل
 
                                                 string fullPath = Path.Combine(destinationPath, fileName);
                                                 Console.WriteLine($"Receiving file: {fileName} ({fileLength} bytes)");
-                                            
-                                            using (FileStream fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write))
+
+                                                using (FileStream fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write))
                                                 {
 
                                                     byte[] buffer = new byte[8192];
                                                     int bytesRead;
-                                                    long totalBytesRead = 0;
+                                                  
+                                                    long totalBytesReceived = 0;
 
-                                                //while (totalBytesRead < fileLength &&
-                                                //       (bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
-                                                //{
-                                                //    fs.Write(buffer, 0, bytesRead);
-                                                //    totalBytesRead += bytesRead;
-
-                                                //    // نمایش پراگرس بار
-                                                //    ShowProgress(totalBytesRead, fileLength);
-                                                //}
-                                                long totalBytesReceived = 0;
-
-                                                while (totalBytesReceived < fileLength)
-                                                {
-                                                    bytesRead = stream.Read(buffer, 0, buffer.Length);
-                                                    if (bytesRead <= 0)
+                                                    while (totalBytesReceived < fileLength)
                                                     {
-                                                        throw new IOException("Connection closed or no more data to read.");
+                                                        bytesRead = stream.Read(buffer, 0, buffer.Length);
+                                                        if (bytesRead <= 0)
+                                                        {
+                                                            throw new IOException("Connection closed or no more data to read.");
+                                                        }
+
+                                                        fs.Write(buffer, 0, bytesRead);
+                                                        writer.Flush(); // اطمینان از نوشتن کامل داده
+                                                        totalBytesReceived += bytesRead;
+
+                                                        // نمایش پراگرس بار
+                                                        ShowProgress(totalBytesReceived, fileLength);
                                                     }
-
-                                                    fs.Write(buffer, 0, bytesRead);
-                                                    writer.Flush(); // اطمینان از نوشتن کامل داده
-                                                    totalBytesReceived += bytesRead;
-
-                                                    // نمایش پراگرس بار
-                                                    ShowProgress(totalBytesReceived, fileLength);
                                                 }
+                                                stream.Flush();
+
+                                                Console.WriteLine($"\nFile saved to {fullPath}");
+
                                             }
-                                            stream.Flush();
-                                            isSendingFile = false;
-                                            Console.WriteLine($"\nFile saved to {fullPath}");
-                                            
-                                        }
-                                        catch (IOException ex)
-                                        {
-                                            Console.WriteLine($"File transfer timeout or connection closed: {ex.Message}");
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            Console.WriteLine($"Error receiving file: {ex.Message}");
+                                            catch (IOException ex)
+                                            {
+                                                Console.WriteLine($"File transfer timeout or connection closed: {ex.Message}");
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                               // Console.WriteLine($"Error receiving file: {ex.Message}");
+                                                Console.WriteLine($"Error receiving file");
+                                                retrytoconnect();
+                                            }
+
                                         }
 
+                                        else
+                                        {
+                                            Console.WriteLine($"Unknown message");
+                                            // Console.WriteLine($"Unknown message: {message}");
+                                            retrytoconnect();
+                                        }
                                     }
-                                    
+
+
                                     else
                                     {
-                                        Console.WriteLine($"Unknown message: {message}");
+                                        Console.WriteLine($"Unknown message type: {message}");
                                     }
                                 }
-
-                                // تخلیه بافر برای پاک‌سازی داده‌های باقی‌مانده
-                                reader.DiscardBufferedData();
                             }
+
                         }
                         catch (Exception ex)
                         {
@@ -467,34 +295,12 @@ namespace ServerApp
                     Console.WriteLine("Connection to RemoteController closed.");
                     retrytoconnect();
                 }
-            });
-
-            //   thread1.Start();
-
+            }
+           
+           
             retrytoconnect();
 
-             string DecryptJwt(string encryptedJwt, string key)
-            {
-                byte[] encryptedBytes = Convert.FromBase64String(encryptedJwt);
-                byte[] keyBytes = Encoding.UTF8.GetBytes(key);
-
-                using (Aes aes = Aes.Create())
-                {
-                    aes.Key = keyBytes;
-
-                    // استخراج IV از ابتدای داده
-                    byte[] iv = new byte[16];
-                    Array.Copy(encryptedBytes, 0, iv, 0, iv.Length);
-                    aes.IV = iv;
-
-                    using (MemoryStream ms = new MemoryStream(encryptedBytes, iv.Length, encryptedBytes.Length - iv.Length))
-                    using (CryptoStream cs = new CryptoStream(ms, aes.CreateDecryptor(), CryptoStreamMode.Read))
-                    using (StreamReader reader = new StreamReader(cs))
-                    {
-                        return reader.ReadToEnd();
-                    }
-                }
-            }
+         
 
             void ShowProgress(long bytesTransferred, long totalBytes)
             {
