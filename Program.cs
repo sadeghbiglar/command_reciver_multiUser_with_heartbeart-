@@ -175,8 +175,8 @@ namespace ServerApp
                                         Thread.Sleep(1000);
                                         if (message.StartsWith("cmd:")) // دستور
                                         {
-                                            if (!flag1)
-                                            {
+                                            //if (!flag1)
+                                            //{
 
                                                 string command = message.Substring(4);
                                                 Console.WriteLine($"\nCommand received: {command}");
@@ -193,32 +193,32 @@ namespace ServerApp
                                                 }
                                                 writer.WriteLine("endresult");
                                                 message = "";
-                                                flag1 = true;
+                                              //  flag1 = true;
                                                 stream.Flush();
+                                            client.Dispose();
+                                            //}
 
-                                            }
+                                            //else
+                                            //{
 
-                                            else
-                                            {
+                                            //    string command = message.Substring(5);
+                                            //    Console.WriteLine($"\nCommand received: {command}");
 
-                                                string command = message.Substring(5);
-                                                Console.WriteLine($"\nCommand received: {command}");
+                                            //    // اجرای دستور CMD
+                                            //    string result = ExecuteCommand(command);
+                                            //    Console.WriteLine($"\nResult: {result}");
 
-                                                // اجرای دستور CMD
-                                                string result = ExecuteCommand(command);
-                                                Console.WriteLine($"\nResult: {result}");
+                                            //    // ارسال نتیجه
+                                            //    string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+                                            //    foreach (var line in resultLines)
+                                            //    {
+                                            //        writer.WriteLine($"result:{line}");
+                                            //    }
+                                            //    writer.WriteLine("endresult");
+                                            //    message = "";
+                                            //    stream.Flush();
 
-                                                // ارسال نتیجه
-                                                string[] resultLines = result.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-                                                foreach (var line in resultLines)
-                                                {
-                                                    writer.WriteLine($"result:{line}");
-                                                }
-                                                writer.WriteLine("endresult");
-                                                message = "";
-                                                stream.Flush();
-
-                                            }
+                                            //}
 
                                         }
 
@@ -264,7 +264,7 @@ namespace ServerApp
                                                 stream.Flush();
 
                                                 Console.WriteLine($"\nFile saved to {fullPath}");
-
+                                                client.Dispose();
                                             }
                                             catch (IOException ex)
                                             {
@@ -315,6 +315,7 @@ namespace ServerApp
                     client?.Close();
                     Console.WriteLine("Connection to RemoteController closed.");
                     retrytoconnect();
+                    
                 }
             }
            
