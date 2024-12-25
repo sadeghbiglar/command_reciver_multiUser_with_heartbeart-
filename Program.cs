@@ -14,6 +14,9 @@ namespace ServerApp
 {
     class Program
     {
+        private static readonly string Key = "my-super-secret-key!"; // کلید 32 بایتی
+        private static readonly string IV = "my-init-vector-123";    // مقدار IV ثابت 16 بایتی
+
         public static bool flag = false;
         public static bool flag1 = false;
         const string controllerIp = "127.0.0.1"; // آدرس IP RemoteController
@@ -27,9 +30,24 @@ namespace ServerApp
         public static ConcurrentQueue<string> outgoingQueue = new ConcurrentQueue<string>();
         static void Main(string[] args)
         {
-            
 
-          void retrytoconnect()
+              string Decrypt(string cipherText)
+            {
+                using (Aes aes = Aes.Create())
+                {
+                    aes.Key = Encoding.UTF8.GetBytes(Key.PadRight(32).Substring(0, 32));
+                    aes.IV = Encoding.UTF8.GetBytes(IV.PadRight(16).Substring(0, 16));
+                    aes.Mode = CipherMode.CBC;
+
+                    using (ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV))
+                    {
+                        byte[] cipherBytes = Convert.FromBase64String(cipherText);
+                        byte[] plainBytes = decryptor.TransformFinalBlock(cipherBytes, 0, cipherBytes.Length);
+                        return Encoding.UTF8.GetString(plainBytes);
+                    }
+                }
+            }
+            void retrytoconnect()
             {
                 // حلقه تلاش برای اتصال به کنترلر
                 while (true)
@@ -148,6 +166,9 @@ namespace ServerApp
                                 if (outgoingQueue.TryDequeue(out string message))
                                 {
                                     Console.WriteLine($"Processing message: {message}");
+                                    string decryptedMessage = Decrypt(message);
+                                    message = decryptedMessage;
+                                    //Console.WriteLine(decryptedMessage);
 
                                     if (!string.IsNullOrEmpty(message))
                                     {
