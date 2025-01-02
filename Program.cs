@@ -19,7 +19,7 @@ namespace ServerApp
 
         public static bool flag = false;
         public static bool flag1 = false;
-        const string controllerIp = "127.0.0.1"; // آدرس IP RemoteController
+        const string controllerIp = "192.168.165.99"; // آدرس IP RemoteController
         const int port = 5000; // پورتی که سرور گوش می‌دهد
         public static string clientName = Environment.MachineName;
         public static string key = "-key-key-@-key-key-@-key-key-@##";
